@@ -60,14 +60,31 @@ const registerUser = async (req, res) => {
 // @access  Public
 const getUsers = async (req, res) => {
   try {
-    const { userId } = req.query; // If we want to exclude current user
+    const { userId } = req.query; // The ID of the currently logged-in user
     
     let query = {};
     if (userId) {
       query._id = { $ne: userId };
     }
     
-    const users = await User.find(query).select('-__v');
+    const users = await User.find(query).select('-__v').lean();
+    
+    // If userId is provided, calculate unread counts for each contact
+    if (userId) {
+      const Message = require('../models/Message');
+      
+      const usersWithCounts = await Promise.all(users.map(async (user) => {
+        const unreadCount = await Message.countDocuments({
+          senderId: user._id,
+          receiverId: userId,
+          isRead: false
+        });
+        return { ...user, unreadCount };
+      }));
+      
+      return res.status(200).json(usersWithCounts);
+    }
+    
     res.status(200).json(users);
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });
