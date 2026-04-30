@@ -43,7 +43,31 @@ const sendMessage = async (req, res) => {
   }
 };
 
+// @desc    Mark messages as read
+// @route   PUT /api/messages/mark-read
+// @access  Public
+const markMessagesRead = async (req, res) => {
+  try {
+    const { senderId, receiverId } = req.body;
+
+    if (!senderId || !receiverId) {
+      return res.status(400).json({ message: 'Please provide senderId and receiverId' });
+    }
+
+    // Mark all messages sent by senderId to receiverId as read
+    await Message.updateMany(
+      { senderId, receiverId, isRead: false },
+      { $set: { isRead: true } }
+    );
+
+    res.status(200).json({ message: 'Messages marked as read' });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to mark messages as read' });
+  }
+};
+
 module.exports = {
   getMessages,
-  sendMessage
+  sendMessage,
+  markMessagesRead
 };

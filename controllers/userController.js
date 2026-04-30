@@ -9,24 +9,50 @@ const getRandomColor = () => {
 // @route   POST /api/users/login
 // @access  Public
 const loginUser = async (req, res) => {
-  const { username, email } = req.body;
+  const { email } = req.body;
 
-  if (!username) {
-    return res.status(400).json({ message: 'Please provide a username' });
+  if (!email) {
+    return res.status(400).json({ message: 'Please provide an email to login' });
   }
 
-  let user = await User.findOne({ username });
+  const user = await User.findOne({ email });
 
   if (!user) {
-    user = await User.create({
-      username,
-      email,
-      avatarColor: getRandomColor(),
-      avatarLetter: username.charAt(0).toUpperCase()
-    });
+    return res.status(404).json({ message: 'User not found. Please create an account.' });
   }
 
   res.status(200).json(user);
+};
+
+// @desc    Register new user
+// @route   POST /api/users/register
+// @access  Public
+const registerUser = async (req, res) => {
+  const { username, email } = req.body;
+
+  if (!username || !email) {
+    return res.status(400).json({ message: 'Please provide both username and email' });
+  }
+
+  // Check if email or username already exists
+  const existingEmail = await User.findOne({ email });
+  if (existingEmail) {
+    return res.status(400).json({ message: 'Email is already in use' });
+  }
+
+  const existingUsername = await User.findOne({ username });
+  if (existingUsername) {
+    return res.status(400).json({ message: 'Username is already taken' });
+  }
+
+  const user = await User.create({
+    username,
+    email,
+    avatarColor: getRandomColor(),
+    avatarLetter: username.charAt(0).toUpperCase()
+  });
+
+  res.status(201).json(user);
 };
 
 // @desc    Get all users
@@ -50,5 +76,6 @@ const getUsers = async (req, res) => {
 
 module.exports = {
   loginUser,
+  registerUser,
   getUsers
 };

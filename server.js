@@ -44,14 +44,26 @@ io.on('connection', (socket) => {
   });
 
   // Handle sending message
-  socket.on('sendMessage', ({ senderId, receiverId, text }) => {
+  socket.on('sendMessage', ({ senderId, receiverId, text, isRead }) => {
     const receiverSocketId = activeUsers.get(receiverId);
     
     if (receiverSocketId) {
       io.to(receiverSocketId).emit('getMessage', {
         senderId,
         text,
+        isRead: isRead || false,
         createdAt: new Date().toISOString()
+      });
+    }
+  });
+
+  // Handle marking messages as read
+  socket.on('markMessagesRead', ({ senderId, receiverId }) => {
+    const senderSocketId = activeUsers.get(senderId);
+    
+    if (senderSocketId) {
+      io.to(senderSocketId).emit('messagesRead', {
+        receiverId
       });
     }
   });
