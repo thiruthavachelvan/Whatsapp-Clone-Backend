@@ -16,7 +16,7 @@ const server = http.createServer(app);
 // CORS configuration for both Express and Socket.io
 const corsOptions = {
   origin: process.env.CLIENT_URL || 'http://localhost:5173',
-  methods: ['GET', 'POST'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
 };
 
 app.use(cors(corsOptions));
@@ -69,6 +69,11 @@ io.on('connection', (socket) => {
         receiverId
       });
     }
+  });
+
+  // Handle user profile updates
+  socket.on('updateUser', (updatedUser) => {
+    socket.broadcast.emit('userUpdated', updatedUser);
   });
 
   // Handle disconnect

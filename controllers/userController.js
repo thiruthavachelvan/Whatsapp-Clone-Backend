@@ -114,6 +114,9 @@ const updateProfile = async (req, res) => {
     const updatedUser = await user.save();
     res.status(200).json(updatedUser);
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'Username is already taken' });
+    }
     res.status(500).json({ message: 'Server Error' });
   }
 };
