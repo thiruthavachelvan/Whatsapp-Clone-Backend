@@ -7,15 +7,36 @@ const getMessages = async (req, res) => {
   try {
     const { senderId, receiverId } = req.params;
 
+    // 1. Mark all messages from senderId to receiverId as read automatically
+    const result = await Message.updateMany(
+      { senderId, receiverId, isRead: false },
+      { $set: { isRead: true } }
+    );
+
+    // 2. If messages were updated, notify the sender via socket to show blue ticks
+    if (result.modifiedCount > 0) {
+      const io = req.app.get('socketio');
+      const activeUsers = req.app.get('activeUsers');
+      const senderSocketId = activeUsers.get(senderId);
+      
+      if (senderSocketId && io) {
+        io.to(senderSocketId).emit('messagesRead', {
+          receiverId
+        });
+      }
+    }
+
+    // 3. Fetch all messages for the conversation
     const messages = await Message.find({
       $or: [
         { senderId, receiverId },
         { senderId: receiverId, receiverId: senderId }
       ]
-    }).sort({ createdAt: 1 }); // Oldest first
+    }).sort({ createdAt: 1 });
 
     res.status(200).json(messages);
   } catch (error) {
+    console.error("Error in getMessages:", error);
     res.status(500).json({ message: 'Failed to get messages' });
   }
 };
@@ -54,14 +75,26 @@ const markMessagesRead = async (req, res) => {
       return res.status(400).json({ message: 'Please provide senderId and receiverId' });
     }
 
-    // Mark all messages sent by senderId to receiverId as read
+    // 1. Mark as read in DB
     await Message.updateMany(
       { senderId, receiverId, isRead: false },
       { $set: { isRead: true } }
     );
 
+    // 2. Notify the sender via socket
+    const io = req.app.get('socketio');
+    const activeUsers = req.app.get('activeUsers');
+    const senderSocketId = activeUsers.get(senderId);
+    
+    if (senderSocketId && io) {
+      io.to(senderSocketId).emit('messagesRead', {
+        receiverId
+      });
+    }
+
     res.status(200).json({ message: 'Messages marked as read' });
   } catch (error) {
+    console.error("Error in markMessagesRead:", error);
     res.status(500).json({ message: 'Failed to mark messages as read' });
   }
 };

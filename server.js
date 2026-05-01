@@ -26,12 +26,15 @@ const io = new Server(server, {
   cors: corsOptions
 });
 
+// Make io accessible in routes
+app.set('socketio', io);
+// Store active users: userId -> socketId
+const activeUsers = new Map();
+app.set('activeUsers', activeUsers);
+
 // Routes
 app.use('/api/users', userRoutes);
 app.use('/api/messages', messageRoutes);
-
-// Store active users: userId -> socketId
-const activeUsers = new Map();
 
 // Socket.io integration
 io.on('connection', (socket) => {
