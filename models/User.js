@@ -45,6 +45,14 @@ const userSchema = mongoose.Schema(
       ],
       default: [],
     },
+    hiddenChats: {
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+        },
+      ],
+      default: [],
+    },
   },
   {
     timestamps: true,

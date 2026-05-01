@@ -64,7 +64,11 @@ const getUsers = async (req, res) => {
     
     let query = {};
     if (userId) {
-      query._id = { $ne: userId };
+      const currentUser = await User.findById(userId);
+      query._id = { 
+        $ne: userId,
+        $nin: currentUser.hiddenChats || []
+      };
     }
     
     const users = await User.find(query).select('-__v').lean();
@@ -86,6 +90,29 @@ const getUsers = async (req, res) => {
     }
     
     res.status(200).json(users);
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error' });
+  }
+};
+
+// @desc    Hide a chat (Delete chat)
+// @route   PUT /api/users/hide
+// @access  Public
+const hideChat = async (req, res) => {
+  try {
+    const { userId, targetId } = req.body;
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (!user.hiddenChats.includes(targetId)) {
+      user.hiddenChats.push(targetId);
+      await user.save();
+    }
+
+    res.status(200).json({ message: 'Chat hidden successfully', hiddenChats: user.hiddenChats });
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });
   }
@@ -240,5 +267,6 @@ module.exports = {
   searchUsers,
   blockUser,
   muteChat,
-  reportUser
+  reportUser,
+  hideChat
 };

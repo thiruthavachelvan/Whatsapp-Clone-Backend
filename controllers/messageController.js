@@ -16,21 +16,22 @@ const getMessages = async (req, res) => {
       return res.status(200).json(messages);
     }
 
-    // 1. Mark all messages from senderId to receiverId as read automatically
+    // 1. Mark all messages FROM the other person TO the current user as read automatically
     const result = await MessageModel.updateMany(
-      { senderId, receiverId, isRead: false },
+      { senderId: receiverId, receiverId: senderId, isRead: false },
       { $set: { isRead: true } }
     );
 
-    // 2. If messages were updated, notify the sender via socket to show blue ticks
+    // 2. If messages were updated, notify the sender (the other person) via socket to show blue ticks
     if (result.modifiedCount > 0) {
       const io = req.app.get('socketio');
       const activeUsers = req.app.get('activeUsers');
-      const senderSocketId = activeUsers.get(senderId);
+      // senderId in params is the receiver (me), receiverId in params is the sender (them)
+      const otherUserSocketId = activeUsers.get(receiverId); 
       
-      if (senderSocketId && io) {
-        io.to(senderSocketId).emit('messagesRead', {
-          receiverId
+      if (otherUserSocketId && io) {
+        io.to(otherUserSocketId).emit('messagesRead', {
+          receiverId: senderId // Tell them that I (senderId) have read their messages
         });
       }
     }
@@ -69,6 +70,19 @@ const sendMessage = async (req, res) => {
       groupId,
       text,
     });
+
+    // Unhide chat for both sender and receiver if it was hidden
+    const UserModel = mongoose.model('User');
+    if (receiverId) {
+      // 1. Unhide for sender
+      await UserModel.findByIdAndUpdate(senderId, {
+        $pull: { hiddenChats: receiverId }
+      });
+      // 2. Unhide for receiver
+      await UserModel.findByIdAndUpdate(receiverId, {
+        $pull: { hiddenChats: senderId }
+      });
+    }
 
     if (groupId) {
       await GroupModel.findByIdAndUpdate(groupId, { updatedAt: Date.now() });
