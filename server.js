@@ -94,6 +94,12 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('userUpdated', updatedUser);
   });
 
+  // Handle message deletion (for everyone)
+  socket.on('deleteMessage', ({ messageId, chatId }) => {
+    // Broadcast to all other connected sockets (receiver will apply it if in the same chat)
+    socket.broadcast.emit('messageDeleted', { messageId, chatId });
+  });
+
   // Handle disconnect
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);

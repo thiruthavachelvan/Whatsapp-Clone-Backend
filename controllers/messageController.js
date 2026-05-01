@@ -290,6 +290,58 @@ const searchInConversation = async (req, res) => {
   }
 };
 
+// @desc    Delete message (me or everyone)
+// @route   PUT /api/messages/delete/:id
+const deleteMessage = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId, type } = req.body; // type: 'me' or 'everyone'
+
+    const message = await mongoose.model('Message').findById(id);
+    if (!message) return res.status(404).json({ message: 'Message not found' });
+
+    if (type === 'everyone') {
+      // Only sender can delete for everyone
+      if (message.senderId.toString() !== userId) {
+        return res.status(403).json({ message: 'Only sender can delete for everyone' });
+      }
+      message.isDeletedForEveryone = true;
+      message.text = 'This message was deleted'; // For legacy support if frontend doesn't handle flag
+    } else {
+      if (!message.deletedBy.includes(userId)) {
+        message.deletedBy.push(userId);
+      }
+    }
+
+    await message.save();
+    res.status(200).json(message);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to delete message' });
+  }
+};
+
+// @desc    Pin message
+// @route   PUT /api/messages/pin/:id
+const pinMessage = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId, duration } = req.body; // duration in hours
+
+    const message = await mongoose.model('Message').findById(id);
+    if (!message) return res.status(404).json({ message: 'Message not found' });
+
+    message.pinnedBy = userId;
+    const expiry = new Date();
+    expiry.setHours(expiry.getHours() + parseInt(duration));
+    message.pinExpiry = expiry;
+
+    await message.save();
+    res.status(200).json(message);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to pin message' });
+  }
+};
+
 module.exports = {
   getMessages,
   sendMessage,
@@ -298,5 +350,7 @@ module.exports = {
   getStarredMessages,
   clearChat,
   searchMessages,
-  searchInConversation
+  searchInConversation,
+  deleteMessage,
+  pinMessage
 };

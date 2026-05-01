@@ -31,6 +31,23 @@ const messageSchema = mongoose.Schema(
         ref: 'User',
       },
     ],
+    deletedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+    isDeletedForEveryone: {
+      type: Boolean,
+      default: false,
+    },
+    pinnedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    pinExpiry: {
+      type: Date,
+    },
   },
   {
     timestamps: true,
