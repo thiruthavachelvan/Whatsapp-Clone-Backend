@@ -25,10 +25,12 @@ const messageSchema = mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    isStarred: {
-      type: Boolean,
-      default: false,
-    },
+    starredBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
   },
   {
     timestamps: true,

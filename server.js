@@ -11,6 +11,11 @@ const groupRoutes = require('./routes/groupRoutes');
 // Connect to database
 connectDB();
 
+// Register Models
+require('./models/User');
+require('./models/Group');
+require('./models/Message');
+
 const app = express();
 const server = http.createServer(app);
 
