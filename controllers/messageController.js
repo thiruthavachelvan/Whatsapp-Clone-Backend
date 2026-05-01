@@ -183,10 +183,37 @@ const getStarredMessages = async (req, res) => {
   }
 };
 
+// @desc    Clear messages in a conversation
+// @route   DELETE /api/messages/clear
+// @access  Public
+const clearChat = async (req, res) => {
+  try {
+    const { userId, targetId, isGroup } = req.body;
+    const MessageModel = mongoose.model('Message');
+
+    if (isGroup) {
+      await MessageModel.deleteMany({ groupId: targetId });
+    } else {
+      await MessageModel.deleteMany({
+        $or: [
+          { senderId: userId, receiverId: targetId },
+          { senderId: targetId, receiverId: userId }
+        ]
+      });
+    }
+
+    res.status(200).json({ message: 'Chat cleared successfully' });
+  } catch (error) {
+    console.error("Error in clearChat:", error);
+    res.status(500).json({ message: 'Failed to clear chat' });
+  }
+};
+
 module.exports = {
   getMessages,
   sendMessage,
   markMessagesRead,
   toggleStar,
-  getStarredMessages
+  getStarredMessages,
+  clearChat
 };

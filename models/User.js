@@ -26,7 +26,25 @@ const userSchema = mongoose.Schema(
     profilePic: {
       type: String,
       default: '',
-    }
+    },
+    blockedUsers: {
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+        },
+      ],
+      default: [],
+    },
+    mutedChats: {
+      type: [
+        {
+          chatId: { type: mongoose.Schema.Types.ObjectId },
+          mutedUntil: { type: Date },
+        },
+      ],
+      default: [],
+    },
   },
   {
     timestamps: true,

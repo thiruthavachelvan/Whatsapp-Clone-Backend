@@ -150,10 +150,95 @@ const searchUsers = async (req, res) => {
   }
 };
 
+// @desc    Block or unblock a user
+// @route   PUT /api/users/block
+// @access  Public
+const blockUser = async (req, res) => {
+  try {
+    const { userId, targetId } = req.body;
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const index = user.blockedUsers.indexOf(targetId);
+    if (index === -1) {
+      user.blockedUsers.push(targetId);
+      await user.save();
+      return res.status(200).json({ message: 'User blocked', blockedUsers: user.blockedUsers });
+    } else {
+      user.blockedUsers.splice(index, 1);
+      await user.save();
+      return res.status(200).json({ message: 'User unblocked', blockedUsers: user.blockedUsers });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error' });
+  }
+};
+
+// @desc    Mute or unmute a chat
+// @route   PUT /api/users/mute
+// @access  Public
+const muteChat = async (req, res) => {
+  try {
+    const { userId, chatId, muteDuration } = req.body; // muteDuration in hours, 0 for unmute
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const index = user.mutedChats.findIndex(m => m.chatId.toString() === chatId);
+    
+    if (muteDuration === 0) {
+      if (index !== -1) {
+        user.mutedChats.splice(index, 1);
+      }
+    } else {
+      const mutedUntil = new Date();
+      if (muteDuration === -1) {
+        // Forever / Long time (e.g. 100 years)
+        mutedUntil.setFullYear(mutedUntil.getFullYear() + 100);
+      } else {
+        mutedUntil.setHours(mutedUntil.getHours() + muteDuration);
+      }
+
+      if (index !== -1) {
+        user.mutedChats[index].mutedUntil = mutedUntil;
+      } else {
+        user.mutedChats.push({ chatId, mutedUntil });
+      }
+    }
+
+    await user.save();
+    res.status(200).json({ message: 'Mute settings updated', mutedChats: user.mutedChats });
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error' });
+  }
+};
+
+// @desc    Report a user
+// @route   POST /api/users/report
+// @access  Public
+const reportUser = async (req, res) => {
+  try {
+    const { userId, targetId, reason } = req.body;
+    // Simple implementation: just log it or return success
+    console.log(`User ${userId} reported User ${targetId} for: ${reason || 'No reason provided'}`);
+    res.status(200).json({ message: 'Report submitted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error' });
+  }
+};
+
 module.exports = {
   loginUser,
   registerUser,
   getUsers,
   updateProfile,
-  searchUsers
+  searchUsers,
+  blockUser,
+  muteChat,
+  reportUser
 };
