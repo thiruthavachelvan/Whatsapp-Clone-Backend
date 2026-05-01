@@ -18,6 +18,14 @@ const userSchema = mongoose.Schema(
     avatarLetter: {
       type: String,
       required: false,
+    },
+    about: {
+      type: String,
+      default: 'Hey there! I am using WhatsApp.',
+    },
+    profilePic: {
+      type: String,
+      default: '',
     }
   },
   {
