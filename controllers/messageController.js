@@ -1,4 +1,5 @@
 const Message = require('../models/Message');
+const Group = require('../models/Group');
 
 // @desc    Get conversation
 // @route   GET /api/messages/:senderId/:receiverId
@@ -6,6 +7,14 @@ const Message = require('../models/Message');
 const getMessages = async (req, res) => {
   try {
     const { senderId, receiverId } = req.params;
+    const isGroup = req.query.isGroup === 'true';
+
+    if (isGroup) {
+      const messages = await Message.find({ groupId: receiverId })
+        .populate('senderId', 'username avatarColor avatarLetter')
+        .sort({ createdAt: 1 });
+      return res.status(200).json(messages);
+    }
 
     // 1. Mark all messages from senderId to receiverId as read automatically
     const result = await Message.updateMany(
@@ -46,20 +55,29 @@ const getMessages = async (req, res) => {
 // @access  Public
 const sendMessage = async (req, res) => {
   try {
-    const { senderId, receiverId, text } = req.body;
+    const { senderId, receiverId, groupId, text } = req.body;
 
-    if (!senderId || !receiverId || !text) {
-      return res.status(400).json({ message: 'Please add all fields' });
+    if (!senderId || (!receiverId && !groupId) || !text) {
+      return res.status(400).json({ message: 'Please provide senderId, text, and either receiverId or groupId' });
     }
 
     const message = await Message.create({
       senderId,
       receiverId,
+      groupId,
       text,
     });
 
-    res.status(201).json(message);
+    if (groupId) {
+      await Group.findByIdAndUpdate(groupId, { updatedAt: Date.now() });
+    }
+
+    const populatedMessage = await Message.findById(message._id)
+      .populate('senderId', 'username avatarColor avatarLetter');
+
+    res.status(201).json(populatedMessage);
   } catch (error) {
+    console.error("Error in sendMessage:", error);
     res.status(500).json({ message: 'Failed to send message' });
   }
 };
@@ -99,8 +117,60 @@ const markMessagesRead = async (req, res) => {
   }
 };
 
+// @desc    Toggle star on a message
+// @route   PUT /api/messages/star/:id
+// @access  Public
+const toggleStar = async (req, res) => {
+  try {
+    const message = await Message.findById(req.params.id);
+    if (!message) {
+      return res.status(404).json({ message: 'Message not found' });
+    }
+
+    message.isStarred = !message.isStarred;
+    await message.save();
+
+    res.status(200).json(message);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to toggle star' });
+  }
+};
+
+// @desc    Get starred messages for a user
+// @route   GET /api/messages/starred/:userId
+// @access  Public
+const getStarredMessages = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Find groups user is a member of
+    const userGroups = await Group.find({ members: { $in: [userId] } }).select('_id');
+    const groupIds = userGroups.map(g => g._id);
+
+    const starredMessages = await Message.find({
+      isStarred: true,
+      $or: [
+        { senderId: userId },
+        { receiverId: userId },
+        { groupId: { $in: groupIds } }
+      ]
+    })
+    .populate('senderId', 'username avatarColor avatarLetter')
+    .populate('receiverId', 'username avatarColor avatarLetter')
+    .populate('groupId', 'name')
+    .sort({ createdAt: -1 });
+
+    res.status(200).json(starredMessages);
+  } catch (error) {
+    console.error("Error fetching starred messages:", error);
+    res.status(500).json({ message: 'Failed to get starred messages' });
+  }
+};
+
 module.exports = {
   getMessages,
   sendMessage,
-  markMessagesRead
+  markMessagesRead,
+  toggleStar,
+  getStarredMessages
 };

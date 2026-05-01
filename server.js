@@ -6,6 +6,7 @@ const { Server } = require('socket.io');
 const connectDB = require('./config/db');
 const userRoutes = require('./routes/userRoutes');
 const messageRoutes = require('./routes/messageRoutes');
+const groupRoutes = require('./routes/groupRoutes');
 
 // Connect to database
 connectDB();
@@ -35,6 +36,7 @@ app.set('activeUsers', activeUsers);
 // Routes
 app.use('/api/users', userRoutes);
 app.use('/api/messages', messageRoutes);
+app.use('/api/groups', groupRoutes);
 
 // Socket.io integration
 io.on('connection', (socket) => {
@@ -47,27 +49,38 @@ io.on('connection', (socket) => {
   });
 
   // Handle sending message
-  socket.on('sendMessage', ({ senderId, receiverId, text, isRead }) => {
-    const receiverSocketId = activeUsers.get(receiverId);
+  socket.on('sendMessage', (data) => {
+    const { senderId, receiverId, groupId, text, senderInfo } = data;
     
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit('getMessage', {
-        senderId,
-        text,
-        isRead: isRead || false,
+    if (groupId) {
+      // Group Message: Broadcast to everyone (clients will filter if they are members)
+      // Ideally, we'd use rooms, but for now simple broadcast is faster to implement
+      socket.broadcast.emit('getMessage', {
+        ...data,
         createdAt: new Date().toISOString()
       });
+    } else {
+      // Private Message
+      const receiverSocketId = activeUsers.get(receiverId);
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit('getMessage', {
+          ...data,
+          createdAt: new Date().toISOString()
+        });
+      }
     }
+  });
+
+  // Handle group creation
+  socket.on('createGroup', (groupData) => {
+    socket.broadcast.emit('groupCreated', groupData);
   });
 
   // Handle marking messages as read
   socket.on('markMessagesRead', ({ senderId, receiverId }) => {
     const senderSocketId = activeUsers.get(senderId);
-    
     if (senderSocketId) {
-      io.to(senderSocketId).emit('messagesRead', {
-        receiverId
-      });
+      io.to(senderSocketId).emit('messagesRead', { receiverId });
     }
   });
 
