@@ -223,11 +223,80 @@ const clearChat = async (req, res) => {
   }
 };
 
+// @desc    Search messages globally
+// @route   GET /api/messages/search
+// @access  Public
+const searchMessages = async (req, res) => {
+  try {
+    const { userId, query } = req.query;
+    if (!userId || !query) {
+      return res.status(400).json({ message: 'User ID and query are required' });
+    }
+
+    const MessageModel = mongoose.model('Message');
+    
+    // Find messages that contain the query and involve the user
+    const messages = await MessageModel.find({
+      text: { $regex: query, $options: 'i' },
+      $or: [
+        { senderId: userId },
+        { receiverId: userId }
+      ]
+    })
+    .populate('senderId', 'username avatarColor avatarLetter')
+    .populate('receiverId', 'username avatarColor avatarLetter')
+    .populate('groupId', 'name')
+    .sort({ createdAt: -1 });
+
+    res.status(200).json(messages);
+  } catch (error) {
+    console.error("Error in searchMessages:", error);
+    res.status(500).json({ message: 'Failed to search messages' });
+  }
+};
+
+// @desc    Search messages in a specific conversation
+// @route   GET /api/messages/search/:senderId/:targetId
+// @access  Public
+const searchInConversation = async (req, res) => {
+  try {
+    const { senderId, receiverId } = req.params;
+    const { query, isGroup } = req.query;
+
+    if (!senderId || !receiverId || !query) {
+      return res.status(400).json({ message: 'Parameters and query are required' });
+    }
+
+    const MessageModel = mongoose.model('Message');
+    let filter = { text: { $regex: query, $options: 'i' } };
+
+    if (isGroup === 'true') {
+      filter.groupId = receiverId;
+    } else {
+      filter.$or = [
+        { senderId, receiverId },
+        { senderId: receiverId, receiverId: senderId }
+      ];
+    }
+
+    const messages = await MessageModel.find(filter)
+      .populate('senderId', 'username avatarColor avatarLetter')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json(messages);
+  } catch (error) {
+    console.error("Error in searchInConversation:", error);
+    res.status(500).json({ message: 'Failed to search messages in conversation' });
+  }
+};
+
 module.exports = {
   getMessages,
   sendMessage,
   markMessagesRead,
   toggleStar,
   getStarredMessages,
-  clearChat
+  clearChat,
+  searchMessages,
+  searchInConversation
 };
