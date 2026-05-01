@@ -17,9 +17,23 @@ const messageSchema = mongoose.Schema(
       ref: 'Group',
       required: false,
     },
+    type: {
+      type: String,
+      enum: ['text', 'image', 'video', 'document', 'audio'],
+      default: 'text'
+    },
     text: {
       type: String,
-      required: true,
+      required: function() { return this.type === 'text'; }, // Only required if it's a plain text message
+    },
+    mediaUrl: {
+      type: String, // Base64 string for this clone
+    },
+    mediaName: {
+      type: String, // E.g., 'document.pdf'
+    },
+    mediaSize: {
+      type: Number, // File size in bytes
     },
     isRead: {
       type: Boolean,

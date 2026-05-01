@@ -56,19 +56,27 @@ const getMessages = async (req, res) => {
 // @access  Public
 const sendMessage = async (req, res) => {
   try {
-    const { senderId, receiverId, groupId, text } = req.body;
+    const { senderId, receiverId, groupId, text, type, mediaUrl, mediaName, mediaSize } = req.body;
     const MessageModel = mongoose.model('Message');
     const GroupModel = mongoose.model('Group');
 
-    if (!senderId || (!receiverId && !groupId) || !text) {
-      return res.status(400).json({ message: 'Please provide senderId, text, and either receiverId or groupId' });
+    if (!senderId || (!receiverId && !groupId)) {
+      return res.status(400).json({ message: 'Please provide senderId and either receiverId or groupId' });
+    }
+
+    if ((!type || type === 'text') && (!text || text.trim() === '')) {
+      return res.status(400).json({ message: 'Please provide text for text messages' });
     }
 
     const message = await MessageModel.create({
       senderId,
       receiverId,
       groupId,
-      text,
+      text: text || '',
+      type: type || 'text',
+      mediaUrl,
+      mediaName,
+      mediaSize
     });
 
     // Unhide chat for both sender and receiver if it was hidden
