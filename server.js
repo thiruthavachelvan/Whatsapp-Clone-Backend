@@ -15,6 +15,7 @@ connectDB();
 require('./models/User');
 require('./models/Group');
 require('./models/Message');
+require('./models/Status');
 
 const app = express();
 const server = http.createServer(app);
@@ -40,9 +41,11 @@ const activeUsers = new Map();
 app.set('activeUsers', activeUsers);
 
 // Routes
+const statusRoutes = require('./routes/statusRoutes');
 app.use('/api/users', userRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/groups', groupRoutes);
+app.use('/api/status', statusRoutes);
 
 // Socket.io integration
 io.on('connection', (socket) => {
