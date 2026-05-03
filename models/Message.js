@@ -19,12 +19,12 @@ const messageSchema = mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['text', 'image', 'video', 'document', 'audio'],
+      enum: ['text', 'image', 'video', 'document', 'audio', 'poll'],
       default: 'text'
     },
     text: {
       type: String,
-      required: function() { return this.type === 'text'; }, // Only required if it's a plain text message
+      required: false,
     },
     mediaUrl: {
       type: String, // Base64 string for this clone
@@ -34,6 +34,20 @@ const messageSchema = mongoose.Schema(
     },
     mediaSize: {
       type: Number, // File size in bytes
+    },
+    poll: {
+      question: String,
+      options: [
+        {
+          text: String,
+          votes: [
+            {
+              type: mongoose.Schema.Types.ObjectId,
+              ref: 'User',
+            }
+          ]
+        }
+      ]
     },
     isRead: {
       type: Boolean,

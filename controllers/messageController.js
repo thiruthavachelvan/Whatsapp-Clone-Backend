@@ -7,7 +7,7 @@ const getMessages = async (req, res) => {
   try {
     const { senderId, receiverId } = req.params;
     const isGroup = req.query.isGroup === 'true';
-    const MessageModel = mongoose.model('Message');
+    const MessageModel = require('../models/Message');
 
     if (isGroup) {
       const messages = await MessageModel.find({ groupId: receiverId })
@@ -56,7 +56,7 @@ const getMessages = async (req, res) => {
 // @access  Public
 const sendMessage = async (req, res) => {
   try {
-    const { senderId, receiverId, groupId, text, type, mediaUrl, mediaName, mediaSize } = req.body;
+    const { senderId, receiverId, groupId, text, type, mediaUrl, mediaName, mediaSize, poll } = req.body;
     const MessageModel = mongoose.model('Message');
     const GroupModel = mongoose.model('Group');
 
@@ -76,7 +76,8 @@ const sendMessage = async (req, res) => {
       type: type || 'text',
       mediaUrl,
       mediaName,
-      mediaSize
+      mediaSize,
+      poll
     });
 
     // Unhide chat for both sender and receiver if it was hidden
@@ -350,6 +351,64 @@ const pinMessage = async (req, res) => {
   }
 };
 
+// @desc    Vote on a poll
+// @route   PUT /api/messages/poll/vote/:id
+const votePoll = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId, optionIndex } = req.body;
+
+    const MessageModel = mongoose.model('Message');
+    const message = await MessageModel.findById(id);
+
+    if (!message || message.type !== 'poll') {
+      return res.status(404).json({ message: 'Poll not found' });
+    }
+
+    const option = message.poll.options[optionIndex];
+    if (!option) {
+      return res.status(400).json({ message: 'Invalid option index' });
+    }
+
+    // Toggle vote
+    const voteIdx = option.votes.indexOf(userId);
+    if (voteIdx === -1) {
+      option.votes.push(userId);
+    } else {
+      option.votes.splice(voteIdx, 1);
+    }
+
+    await message.save();
+
+    // Broadcast update via socket
+    const io = req.app.get('socketio');
+    const activeUsers = req.app.get('activeUsers');
+    const targetId = message.groupId || (message.senderId.toString() === userId ? message.receiverId : message.senderId);
+    
+    // In a group, broadcast to the group
+    if (message.groupId) {
+      io.to(message.groupId.toString()).emit('voteUpdate', { 
+        messageId: id, 
+        poll: message.poll 
+      });
+    } else {
+      // In private chat, send to the other person
+      const otherUserSocketId = activeUsers.get(targetId.toString());
+      if (otherUserSocketId && io) {
+        io.to(otherUserSocketId).emit('voteUpdate', { 
+          messageId: id, 
+          poll: message.poll 
+        });
+      }
+    }
+
+    res.status(200).json(message);
+  } catch (error) {
+    console.error("Error in votePoll:", error);
+    res.status(500).json({ message: 'Failed to cast vote' });
+  }
+};
+
 module.exports = {
   getMessages,
   sendMessage,
@@ -360,5 +419,6 @@ module.exports = {
   searchMessages,
   searchInConversation,
   deleteMessage,
-  pinMessage
+  pinMessage,
+  votePoll
 };
