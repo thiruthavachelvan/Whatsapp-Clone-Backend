@@ -43,6 +43,9 @@ const statusSchema = mongoose.Schema(
   }
 );
 
+// Optimize status lookups
+statusSchema.index({ user: 1 });
+
 // The 'expires' option on createdAt already handles the TTL index
 // statusSchema.index({ createdAt: 1 }, { expireAfterSeconds: 86400 });
 

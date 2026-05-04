@@ -82,6 +82,16 @@ const messageSchema = mongoose.Schema(
   }
 );
 
+// Optimize performance with indexes
+messageSchema.index({ senderId: 1 });
+messageSchema.index({ receiverId: 1 });
+messageSchema.index({ groupId: 1 });
+messageSchema.index({ createdAt: -1 });
+// Compound indexes for faster chat loading
+messageSchema.index({ senderId: 1, receiverId: 1, createdAt: -1 });
+messageSchema.index({ receiverId: 1, senderId: 1, createdAt: -1 });
+messageSchema.index({ groupId: 1, createdAt: -1 });
+
 const Message = mongoose.model('Message', messageSchema);
 
 module.exports = Message;

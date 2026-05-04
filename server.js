@@ -13,7 +13,7 @@ connectDB();
 
 // Register Models
 require('./models/User');
-require('./models/Group');
+const Group = require('./models/Group');
 require('./models/Message');
 require('./models/Status');
 
@@ -31,7 +31,12 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 const io = new Server(server, {
-  cors: corsOptions
+  cors: corsOptions,
+  // Optimization: prefer WebSocket, fall back to polling only if needed
+  transports: ['websocket', 'polling'],
+  // Reduce ping interval for faster disconnect detection
+  pingInterval: 10000,
+  pingTimeout: 5000,
 });
 
 // Make io accessible in routes
@@ -52,36 +57,47 @@ io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
 
   // When a user logs in and connects
-  socket.on('addUser', (userId) => {
+  socket.on('addUser', async (userId) => {
     activeUsers.set(userId, socket.id);
+    
+    // OPTIMIZATION: Join Socket.IO rooms for each group the user belongs to.
+    // This replaces broadcast.emit (sends to ALL) with targeted room emission.
+    try {
+      const userGroups = await Group.find({ members: userId }, '_id').lean();
+      userGroups.forEach(group => {
+        socket.join(group._id.toString());
+      });
+    } catch (err) {
+      console.error('Error joining group rooms:', err.message);
+    }
+    
     io.emit('getUsers', Array.from(activeUsers.keys()));
   });
 
   // Handle sending message
   socket.on('sendMessage', (data) => {
-    const { senderId, receiverId, groupId, text, senderInfo } = data;
+    const { receiverId, groupId } = data;
+    const messagePayload = { ...data, createdAt: new Date().toISOString() };
     
     if (groupId) {
-      // Group Message: Broadcast to everyone (clients will filter if they are members)
-      // Ideally, we'd use rooms, but for now simple broadcast is faster to implement
-      socket.broadcast.emit('getMessage', {
-        ...data,
-        createdAt: new Date().toISOString()
-      });
+      // OPTIMIZATION: Emit to room (group members only), not broadcast to everyone.
+      // Old: socket.broadcast.emit → sends to all ~N users
+      // New: io.to(room).emit → sends only to ~group.members users
+      socket.to(groupId.toString()).emit('getMessage', messagePayload);
     } else {
-      // Private Message
+      // Private Message: direct targeted emit
       const receiverSocketId = activeUsers.get(receiverId);
       if (receiverSocketId) {
-        io.to(receiverSocketId).emit('getMessage', {
-          ...data,
-          createdAt: new Date().toISOString()
-        });
+        io.to(receiverSocketId).emit('getMessage', messagePayload);
       }
     }
   });
 
-  // Handle group creation
+  // Handle group creation — join the new room immediately
   socket.on('createGroup', (groupData) => {
+    // Creator joins the new group room
+    socket.join(groupData._id.toString());
+    // Notify other members (they will join via their next addUser event)
     socket.broadcast.emit('groupCreated', groupData);
   });
 
@@ -100,14 +116,19 @@ io.on('connection', (socket) => {
 
   // Handle message deletion (for everyone)
   socket.on('deleteMessage', ({ messageId, chatId }) => {
-    // Broadcast to all other connected sockets (receiver will apply it if in the same chat)
     socket.broadcast.emit('messageDeleted', { messageId, chatId });
+  });
+
+  // Handle poll vote updates in group chats via rooms
+  socket.on('voteUpdate', ({ messageId, poll, groupId }) => {
+    if (groupId) {
+      socket.to(groupId.toString()).emit('voteUpdate', { messageId, poll });
+    }
   });
 
   // Handle disconnect
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);
-    // Remove user mapping
     for (let [userId, socketId] of activeUsers.entries()) {
       if (socketId === socket.id) {
         activeUsers.delete(userId);

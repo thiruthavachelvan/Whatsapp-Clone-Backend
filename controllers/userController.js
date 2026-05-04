@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const User = require('../models/User');
 
 const getRandomColor = () => {
@@ -55,45 +56,96 @@ const registerUser = async (req, res) => {
   res.status(201).json(user);
 };
 
-// @desc    Get all users
+// @desc    Get contacts (users the current user has chatted with), with last message timestamp & unread count
 // @route   GET /api/users
 // @access  Public
 const getUsers = async (req, res) => {
   try {
-    const { userId } = req.query; // The ID of the currently logged-in user
-    
-    let query = {};
-    if (userId) {
-      const currentUser = await User.findById(userId);
-      if (!currentUser) {
-        return res.status(404).json({ message: 'Current user not found' });
+    const { userId } = req.query;
+
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      // Fallback: return all users if no userId provided (e.g. search context)
+      const allUsers = await User.find({}).select('-__v').lean();
+      return res.status(200).json(allUsers);
+    }
+
+    const Message = require('../models/Message');
+    const userObjId = new mongoose.Types.ObjectId(userId);
+
+    // Get the current user's hidden chats
+    let hiddenChats = [];
+    try {
+      const currentUser = await User.findById(userId).select('hiddenChats').lean();
+      if (currentUser?.hiddenChats?.length > 0) {
+        hiddenChats = currentUser.hiddenChats.map(id => id.toString());
       }
-      query._id = { 
-        $ne: userId,
-        $nin: currentUser.hiddenChats || []
-      };
+    } catch (err) {
+      console.error('Could not fetch hiddenChats, skipping filter:', err.message);
     }
-    
-    const users = await User.find(query).select('-__v').lean();
-    
-    // If userId is provided, calculate unread counts for each contact
-    if (userId) {
-      const Message = require('../models/Message');
-      
-      const usersWithCounts = await Promise.all(users.map(async (user) => {
-        const unreadCount = await Message.countDocuments({
-          senderId: user._id,
-          receiverId: userId,
-          isRead: false
-        });
-        return { ...user, unreadCount };
-      }));
-      
-      return res.status(200).json(usersWithCounts);
+
+    // Find all unique contact IDs the current user has exchanged messages with
+    // In MongoDB, { field: null } matches docs where field is null OR missing — perfect for private messages
+    const [sentMsgs, receivedMsgs] = await Promise.all([
+      Message.aggregate([
+        { $match: { senderId: userObjId, receiverId: { $exists: true, $ne: null }, groupId: null } },
+        { $group: { _id: '$receiverId', lastAt: { $max: '$createdAt' } } }
+      ]),
+      Message.aggregate([
+        { $match: { receiverId: userObjId, groupId: null } },
+        { $group: { _id: '$senderId', lastAt: { $max: '$createdAt' } } }
+      ])
+    ]);
+
+    // Merge: keep the most recent timestamp per contact
+    const contactMap = {};
+    for (const { _id, lastAt } of [...sentMsgs, ...receivedMsgs]) {
+      const key = _id.toString();
+      if (!contactMap[key] || lastAt > contactMap[key]) {
+        contactMap[key] = lastAt;
+      }
     }
-    
-    res.status(200).json(users);
+
+    // Filter out self, hidden chats
+    const contactIds = Object.keys(contactMap).filter(id =>
+      id !== userId && !hiddenChats.includes(id)
+    );
+
+    if (contactIds.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // Fetch unread counts in one aggregation
+    const unreadAgg = await Message.aggregate([
+      {
+        $match: {
+          receiverId: userObjId,
+          isRead: false,
+          senderId: { $in: contactIds.map(id => new mongoose.Types.ObjectId(id)) }
+        }
+      },
+      { $group: { _id: '$senderId', count: { $sum: 1 } } }
+    ]);
+
+    const unreadMap = {};
+    unreadAgg.forEach(({ _id, count }) => {
+      unreadMap[_id.toString()] = count;
+    });
+
+    // Fetch all contact users
+    const users = await User.find({ _id: { $in: contactIds } }).select('-__v').lean();
+
+    // Attach metadata and sort by last message time (most recent first)
+    const result = users
+      .map(u => ({
+        ...u,
+        unreadCount: unreadMap[u._id.toString()] || 0,
+        updatedAt: contactMap[u._id.toString()] || u.updatedAt
+      }))
+      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+    return res.status(200).json(result);
   } catch (error) {
+    console.error('Error in getUsers:', error);
     res.status(500).json({ message: 'Server Error' });
   }
 };

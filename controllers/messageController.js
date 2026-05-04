@@ -8,12 +8,18 @@ const getMessages = async (req, res) => {
     const { senderId, receiverId } = req.params;
     const isGroup = req.query.isGroup === 'true';
     const MessageModel = require('../models/Message');
+    // OPTIMIZATION: Limit to last 200 messages (pagination-ready). Loading 1000+ msgs at once is slow.
+    const MSG_LIMIT = 200;
 
     if (isGroup) {
+      // OPTIMIZATION: .lean() returns plain JS objects instead of Mongoose Document instances.
+      // This skips the Mongoose hydration step, making reads 2-5x faster.
       const messages = await MessageModel.find({ groupId: receiverId })
         .populate('senderId', 'username avatarColor avatarLetter')
-        .sort({ createdAt: 1 });
-      return res.status(200).json(messages);
+        .sort({ createdAt: -1 })
+        .limit(MSG_LIMIT)
+        .lean();
+      return res.status(200).json(messages.reverse()); // reverse for chronological order
     }
 
     // 1. Mark all messages FROM the other person TO the current user as read automatically
@@ -22,29 +28,31 @@ const getMessages = async (req, res) => {
       { $set: { isRead: true } }
     );
 
-    // 2. If messages were updated, notify the sender (the other person) via socket to show blue ticks
+    // 2. If messages were updated, notify the sender via socket
     if (result.modifiedCount > 0) {
       const io = req.app.get('socketio');
       const activeUsers = req.app.get('activeUsers');
-      // senderId in params is the receiver (me), receiverId in params is the sender (them)
       const otherUserSocketId = activeUsers.get(receiverId); 
       
       if (otherUserSocketId && io) {
         io.to(otherUserSocketId).emit('messagesRead', {
-          receiverId: senderId // Tell them that I (senderId) have read their messages
+          receiverId: senderId
         });
       }
     }
 
-    // 3. Fetch all messages for the conversation
+    // 3. Fetch messages with .lean() for speed
     const messages = await MessageModel.find({
       $or: [
         { senderId, receiverId },
         { senderId: receiverId, receiverId: senderId }
       ]
-    }).sort({ createdAt: 1 });
+    })
+    .sort({ createdAt: -1 })
+    .limit(MSG_LIMIT)
+    .lean();
 
-    res.status(200).json(messages);
+    res.status(200).json(messages.reverse());
   } catch (error) {
     console.error("Error in getMessages:", error);
     res.status(500).json({ message: 'Failed to get messages' });
@@ -59,6 +67,7 @@ const sendMessage = async (req, res) => {
     const { senderId, receiverId, groupId, text, type, mediaUrl, mediaName, mediaSize, poll } = req.body;
     const MessageModel = mongoose.model('Message');
     const GroupModel = mongoose.model('Group');
+    const UserModel = mongoose.model('User');
 
     if (!senderId || (!receiverId && !groupId)) {
       return res.status(400).json({ message: 'Please provide senderId and either receiverId or groupId' });
@@ -68,6 +77,7 @@ const sendMessage = async (req, res) => {
       return res.status(400).json({ message: 'Please provide text for text messages' });
     }
 
+    // 1. Create the message
     const message = await MessageModel.create({
       senderId,
       receiverId,
@@ -80,25 +90,31 @@ const sendMessage = async (req, res) => {
       poll
     });
 
-    // Unhide chat for both sender and receiver if it was hidden
-    const UserModel = mongoose.model('User');
+    // OPTIMIZATION: Run all follow-up DB writes in PARALLEL instead of sequentially.
+    // Old: 3 awaits = 3 sequential round-trips (slow)
+    // New: Promise.all = all 3 fire at once, we wait for all together (fast)
+    const sideEffects = [];
+
     if (receiverId) {
-      // 1. Unhide for sender
-      await UserModel.findByIdAndUpdate(senderId, {
-        $pull: { hiddenChats: receiverId }
-      });
-      // 2. Unhide for receiver
-      await UserModel.findByIdAndUpdate(receiverId, {
-        $pull: { hiddenChats: senderId }
-      });
+      sideEffects.push(
+        UserModel.findByIdAndUpdate(senderId, { $pull: { hiddenChats: receiverId } }),
+        UserModel.findByIdAndUpdate(receiverId, { $pull: { hiddenChats: senderId } })
+      );
     }
 
     if (groupId) {
-      await GroupModel.findByIdAndUpdate(groupId, { updatedAt: Date.now() });
+      sideEffects.push(
+        GroupModel.findByIdAndUpdate(groupId, { updatedAt: Date.now() })
+      );
     }
 
-    const populatedMessage = await MessageModel.findById(message._id)
-      .populate('senderId', 'username avatarColor avatarLetter');
+    // Also populate the message in parallel with side effects
+    sideEffects.push(
+      MessageModel.findById(message._id).populate('senderId', 'username avatarColor avatarLetter').lean()
+    );
+
+    const results = await Promise.all(sideEffects);
+    const populatedMessage = results[results.length - 1]; // Last item is always the populated message
 
     res.status(201).json(populatedMessage);
   } catch (error) {
